@@ -1,0 +1,10 @@
+# Core numerico
+numpy>=1.24
+
+# Image processing
+opencv-python>=4.8
+Pillow>=10.0
+
+# Backend API
+Flask>=2.3,<3.0
+flask-cors>=4.0,<5.0

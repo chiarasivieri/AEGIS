@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <title>Aegis Admin - Verifica Forense</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; padding: 40px; background: #eef2f3; text-align: center; }
+        .container { background: white; padding: 40px; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); max-width: 600px; margin: auto; }
+        h1 { color: #2c3e50; margin-bottom: 5px; }
+        p { color: #7f8c8d; margin-bottom: 30px; }
+        
+        .upload-box {
+            border: 3px dashed #cbd5e0;
+            padding: 30px;
+            border-radius: 10px;
+            background: #f8f9fa;
+            margin-bottom: 20px;
+        }
+        
+        input[type="file"] { width: 100%; }
+        
+        button { 
+            background: #3498db; color: white; border: none; 
+            padding: 15px 30px; font-size: 18px; border-radius: 8px; 
+            cursor: pointer; transition: 0.3s; width: 100%; font-weight: bold;
+        }
+        button:hover { background: #2980b9; }
+        
+        #result { margin-top: 30px; padding: 20px; border-radius: 8px; display: none; text-align: left; }
+        
+        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .fail { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        
+        .info-row { margin: 10px 0; border-bottom: 1px solid rgba(0,0,0,0.1); padding-bottom: 5px; display: flex; justify-content: space-between;}
+        .label { font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>🕵️‍♀️ Aegis Forensics</h1>
+    <p>Piattaforma di analisi per il rilevamento di Revenge Porn.</p>
+    
+    <div class="upload-box">
+        <input type="file" id="fileInput" accept="image/*">
+    </div>
+
+    <button onclick="verifyImage()">🔍 ANALIZZA IMMAGINE</button>
+
+    <div id="result"></div>
+</div>
+
+<script>
+    async function verifyImage() {
+        const fileInput = document.getElementById('fileInput');
+        const resultDiv = document.getElementById('result');
+
+        if(fileInput.files.length === 0) {
+            alert("Per favore, seleziona un'immagine da analizzare.");
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('image', fileInput.files[0]);
+
+        // Feedback visivo "caricamento"
+        resultDiv.style.display = 'block';
+        resultDiv.className = '';
+        resultDiv.innerHTML = "<center>⏳ Analisi steganografica in corso...</center>";
+        resultDiv.style.backgroundColor = "#eee";
+        resultDiv.style.color = "#333";
+
+        try {
+            // Chiamata al server sulla porta 5001
+            const response = await fetch('http://127.0.0.1:5001/verify', {
+                method: 'POST',
+                body: formData
+            });
+
+            const data = await response.json();
+
+            if (data.found) {
+                // CASO POSITIVO: Watermark trovato
+                resultDiv.className = 'success';
+                resultDiv.innerHTML = `
+                    <h2 style="margin-top:0; color:#155724; text-align:center">🚨 LEAK RILEVATO!</h2>
+                    <p style="text-align:center">È stata trovata una firma digitale nascosta.</p>
+                    <hr>
+                    <div class="info-row"><span class="label">Tecnica usata:</span> <span>${data.technique}</span></div>
+                    <div class="info-row"><span class="label">Mittente (Colpevole):</span> <span>${data.sender}</span></div>
+                    <div class="info-row"><span class="label">Destinatario (Vittima):</span> <span>${data.receiver}</span></div>
+                    <div class="info-row"><span class="label">Firma Grezza:</span> <code>${data.raw}</code></div>
+                `;
+            } else {
+                // CASO NEGATIVO: Immagine pulita
+                resultDiv.className = 'fail';
+                resultDiv.innerHTML = `
+                    <h2 style="margin-top:0; color:#721c24; text-align:center">✅ PULITA</h2>
+                    <p style="text-align:center">Nessun watermark LSB o DCT rilevato.</p>
+                    <small>Nota: Se l'immagine è stata compressa pesantemente, il watermark LSB potrebbe essere andato perso.</small>
+                `;
+            }
+
+        } catch (error) {
+            console.error(error);
+            resultDiv.className = 'fail';
+            resultDiv.innerHTML = "❌ <b>Errore di Connessione</b><br>Assicurati che <code>app.py</code> sia in esecuzione.";
+        }
+    }
+</script>
+
+</body>
+</html>
