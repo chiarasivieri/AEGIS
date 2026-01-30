@@ -79,7 +79,7 @@ Il core del progetto è la classe `ComboWatermark`, che implementa una strategia
 
 Navigare nella cartella del server, attivare l'ambiente virtuale e installare le dipendenze.
 
-```
+```bash
 cd aegis_backend
 
 # Creazione virtual environment (se non presente)
@@ -106,7 +106,7 @@ Navigare nella cartella dell'applicazione Flutter e avviare l'app.
 
 **Nota:** Per i test su emulatore Android, le chiamate API sono configurate su `10.0.2.2` (alias di localhost per Android).
 
-```
+```bash
 cd aegis_frontend
 flutter pub get
 flutter run
@@ -123,6 +123,7 @@ flutter run
 
 Questo software è stato sviluppato a scopo puramente didattico e accademico. L'efficacia forense del watermarking non è garantita per utilizzi legali in ambienti di produzione senza ulteriori certificazioni.
 
+---
 ## Autori
 
 * **Marzia De Maina**
@@ -130,3 +131,4 @@ Questo software è stato sviluppato a scopo puramente didattico e accademico. L'
 
 Alma Mater Studiorum - Università di Bologna
 Corso di Cybersecurity - A.A. 2025/2026
+---
