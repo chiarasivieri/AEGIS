@@ -1,0 +1,27 @@
+graph TD
+    %% Stili
+    classDef mobile fill:#e1f5fe,stroke:#01579b,stroke-width:2px;
+    classDef backend fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px;
+    classDef db fill:#fff9c4,stroke:#fbc02d,stroke-width:2px;
+
+    subgraph CLIENT [Lato Client (Mobile)]
+        User((Utente))
+        Flutter[📱 App Flutter]:::mobile
+        User -->|Carica/Visualizza| Flutter
+    end
+
+    subgraph SERVER [Lato Server (Backend)]
+        Flask[Flask API Gateway]:::backend
+        Core[Core Watermarking\n(LSB / DCT / Grid Search)]:::backend
+        
+        DB[(File System / JSON DB)]:::db
+    end
+
+    %% Connessioni
+    Flutter -->|1. HTTP POST (Image + UserID)| Flask
+    Flask -->|2. Validazione| Flask
+    Flask -->|3. Processing| Core
+    Core -->|4. Embed/Extract| Core
+    Core -->|5. Save/Log| DB
+    DB -.->|Return Path| Flask
+    Flask -.->|6. JSON Response / Image| Flutter
