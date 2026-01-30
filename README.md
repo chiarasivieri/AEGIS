@@ -123,6 +123,7 @@ flutter run
 
 Aegis nasce per colmare il **gap forense** nella condivisione di immagini sensibili: non mira a impedire la copia (di fatto impossibile), ma a garantire **non ripudiabilità** e **tracciabilità** quando un contenuto esce dal controllo del mittente (es. screenshot o foto allo schermo). Attraverso la soluzione **Aegis Combo (Dual Layer)**—con watermark **DCT** “profondo” per la robustezza e **LSB** “superficiale” per la verifica rapida di integrità—il sistema massimizza le probabilità di recupero della firma anche dopo manipolazioni comuni. I test sperimentali mostrano una buona tenuta su **compressione JPEG (Q≈70%)** grazie al livello DCT, verifica immediata dell’integrità grazie all’LSB e una **resilienza parziale al cropping** basata sulla ridondanza dei blocchi. 
 In prospettiva, il progetto apre una roadmap evolutiva (“**AIgis**”) che include **autenticazione forte** con firme asimmetriche (per mitigare spoofing degli ID), controlli **AI pre-invio** per il rilevamento deepfake e un **web crawler** per individuare automaticamente immagini leakate tramite la firma Aegis. In sintesi: è possibile bilanciare **privacy e tracciabilità** in un’unica piattaforma, ponendo le basi per una cybersecurity più etica e attiva. 
+
 ---
 ## Disclaimer
 
