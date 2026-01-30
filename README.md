@@ -1,5 +1,5 @@
 
-# Aegis — un framework per la condivisione sicura di immagini #
+# 🛡️ Aegis — un framework per la condivisione sicura di immagini #
 
 ## Panoramica
 **Aegis** è un proof-of-concept sviluppato nell’ambito del corso di **Cybersecurity** presso l’**Alma Mater Studiorum – Università di Bologna** (A.A. 2025/2026).
@@ -22,8 +22,15 @@ Il sistema adotta un’architettura **Client–Server**:
   App mobile cross-platform per upload sicuro e gestione utente.
 
 ---
+## Algoritmi di Watermarking (LSB, DCT, SS)
 
-## Algoritmo: *Aegis Combo* (Dual Layer)
+Aegis combina più tecniche di watermarking/steganografia per bilanciare **robustezza** e **integrità**. 
+1. **LSB (Least Significant Bit)** opera nel dominio spaziale e consiste nel modificare i bit meno significativi dei pixel per inserire una firma: è molto veloce e utile per controlli di **integrità bit-exact**, ma è in genere fragile rispetto a compressione e rielaborazioni. 
+2. **DCT (Discrete Cosine Transform)** lavora invece nel dominio delle frequenze (come JPEG): inserendo il watermark in coefficienti selezionati della trasformata, la firma risulta tipicamente più **resistente** a compressione, ricodifica e ridimensionamento, a costo di una complessità maggiore.
+3. **SS (Spread Spectrum)** distribuisce la firma su molte componenti dell’immagine (spalmando il segnale su un’ampia banda), riducendo l’impatto di modifiche locali e migliorando la tolleranza a rumore e manipolazioni: è una tecnica spesso impiegata per aumentare la resilienza del watermark mantenendolo poco percettibile.
+
+---
+## Soluzione finale: *Aegis Combo* (Dual Layer)
 Il core del progetto è la classe `ComboWatermark`, che implementa una strategia a **doppio livello**:
 
 1. **Layer Robusto (DCT)**  
@@ -123,7 +130,3 @@ Questo software è stato sviluppato a scopo puramente didattico e accademico. L'
 
 Alma Mater Studiorum - Università di Bologna
 Corso di Cybersecurity - A.A. 2025/2026
-
-```
-
-```
