@@ -5,7 +5,7 @@ import 'package:http/http.dart' as http;
 class ApiService {
   // Per iOS Simulator usa 127.0.0.1
   // Per Android Emulator usa 10.0.2.2
-  static const String baseUrl = "http://127.0.0.1:5000";
+  static const String baseUrl = "http://127.0.0.1:5001";
 
   Future<Uint8List?> applyWatermark(File imageFile, String type, String message) async {
     var uri = Uri.parse("$baseUrl/apply");

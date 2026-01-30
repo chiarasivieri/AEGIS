@@ -1,119 +1,228 @@
 import cv2
 import numpy as np
-from collections import Counter
-import re
+from reedsolo import RSCodec, ReedSolomonError
 
-# --- LSB (Lasciamo vuoto per ora) ---
+# LSB WATERMARK (Semplice, per demo)
 class LSBWatermark:
-    def embed(self, img, m): return img
-    def extract(self, img): return ""
+    def embed(self, image, secret_message):
+        # Aggiungiamo un terminatore univoco
+        secret_message += "#####"
+        binary_message = ''.join(format(ord(char), '08b') for char in secret_message)
+        data_len = len(binary_message)
+        
+        flat_image = image.flatten()
+        if data_len > len(flat_image):
+            raise ValueError("Messaggio troppo lungo!")
+            
+        for i in range(data_len):
+            # Azzera l'ultimo bit e metti il nostro
+            flat_image[i] = (flat_image[i] & 254) | int(binary_message[i])
+            
+        return flat_image.reshape(image.shape)
 
-# --- DCT (Versione Stabile con Marker) ---
+    def extract(self, image):
+        flat_image = image.flatten()
+        binary_data = ""
+        # Leggiamo i primi 4000 byte per sicurezza
+        limit = min(len(flat_image), 4000 * 8)
+        
+        for i in range(limit):
+            binary_data += str(flat_image[i] & 1)
+            
+        all_bytes = [binary_data[i: i+8] for i in range(0, len(binary_data), 8)]
+        decoded_data = ""
+        
+        for byte in all_bytes:
+            try:
+                char = chr(int(byte, 2))
+                decoded_data += char
+                if decoded_data.endswith("#####"):
+                    return decoded_data[:-5]
+            except:
+                pass
+        return ""
+
+# DCT WATERMARK (ROBUSTO)
 class DCTWatermark:
     def __init__(self):
         self.block_size = 8
-        self.Q = 120         # Forza della firma
-        self.marker = "###"   # Marker di inizio/fine
+        # Coefficienti DCT da modificare (frequenze medie, robuste a compressione)
+        self.u1, self.v1 = 4, 3 
+        self.u2, self.v2 = 3, 4 
 
-    def to_bits(self, message):
-        bits = []
-        for char in message:
-            bin_val = format(ord(char), '08b')
-            bits.extend([int(b) for b in bin_val])
-        return bits
-
-    def embed(self, img, message):
-        # Aggiungi marker: ###MESSAGGIO###
-        full_msg = self.marker + message + self.marker
+    def embed(self, image, secret_message):
+        # 1. Converti stringa in bit
+        binary_message = ''.join(format(ord(char), '08b') for char in secret_message)
+        msg_len = len(binary_message)
         
-        img_float = np.float32(img)
-        h, w, _ = img_float.shape
-        b_channel = img_float[:, :, 0]
+        # Lavoriamo sul canale Blu (o Y in YUV), qui usiamo BGR -> Blu è canale 0
+        h, w, _ = image.shape
+        b_channel = image[:, :, 0].astype(np.float32)
         
-        msg_bits = self.to_bits(full_msg)
-        msg_len = len(msg_bits)
-        if msg_len == 0: return img
-
-        bit_idx = 0
+        # Calcola quanti blocchi abbiamo
+        blocks_h = h // self.block_size
+        blocks_w = w // self.block_size
+        total_blocks = blocks_h * blocks_w
         
-        # Scriviamo su tutta l'immagine
-        for i in range(0, h - self.block_size, self.block_size):
-            for j in range(0, w - self.block_size, self.block_size):
-                block = b_channel[i:i+self.block_size, j:j+self.block_size]
+        # TILING: Ripetiamo il messaggio finché riempiamo l'immagine
+        # Questo aiuta contro il CROP
+        full_message_bits = (binary_message * (total_blocks // msg_len + 1))[:total_blocks]
+        
+        msg_index = 0
+        
+        for row in range(blocks_h):
+            for col in range(blocks_w):
+                if msg_index >= len(full_message_bits):
+                    break
+                    
+                bit = int(full_message_bits[msg_index])
+                
+                # Coordinate blocco
+                y = row * self.block_size
+                x = col * self.block_size
+                
+                block = b_channel[y:y+8, x:x+8]
                 dct_block = cv2.dct(block)
                 
-                bit = msg_bits[bit_idx % msg_len]
+                # LOGICA ROBUSTAcd 
+                # Modifichiamo i valori finché la differenza non regge all'arrotondamento
+                v1 = dct_block[self.u1, self.v1]
+                v2 = dct_block[self.u2, self.v2]
                 
-                # Usiamo frequenze (1,2) e (2,1) che resistono al JPEG
-                v1 = dct_block[1, 2]
-                v2 = dct_block[2, 1]
+                alpha = 100
+                max_attempts = 5 # Evita loop infiniti
                 
-                if bit == 1:
-                    if v1 <= v2:
-                        dct_block[1, 2] = v2 + self.Q
-                        dct_block[2, 1] = v1 - self.Q
+                for _ in range(max_attempts):
+                    if bit == 0:
+                        # Vogliamo v1 > v2
+                        if v1 <= v2 + alpha:
+                            diff = (v2 + alpha - v1) / 2.0
+                            v1 += diff
+                            v2 -= diff
+                    else: # bit == 1
+                        # Vogliamo v2 > v1
+                        if v2 <= v1 + alpha:
+                            diff = (v1 + alpha - v2) / 2.0
+                            v2 += diff
+                            v1 -= diff
+                    
+                    # Applica modifiche
+                    dct_block[self.u1, self.v1] = v1
+                    dct_block[self.u2, self.v2] = v2
+                    
+                    # CHECK DI VALIDITÀ
+                    # Simuliamo la riconversione in immagine
+                    idct_block = cv2.idct(dct_block)
+                    # Arrotondiamo come farebbe il salvataggio file
+                    rounded_block = np.clip(idct_block, 0, 255).astype(np.uint8).astype(np.float32)
+                    # Rifacciamo la DCT per vedere cosa si legge
+                    check_dct = cv2.dct(rounded_block)
+                    
+                    c1 = check_dct[self.u1, self.v1]
+                    c2 = check_dct[self.u2, self.v2]
+                    
+                    # Se il bit è leggibile correttamente, usciamo dal loop
+                    if bit == 0 and c1 > c2 + 5: # +5 margine di sicurezza
+                        break
+                    elif bit == 1 and c2 > c1 + 5:
+                        break
                     else:
-                        if (v1 - v2) < self.Q:
-                            dct_block[1, 2] += self.Q/2 + 5
-                            dct_block[2, 1] -= self.Q/2 + 5
-                else:
-                    if v1 >= v2:
-                        dct_block[1, 2] = v2 - self.Q
-                        dct_block[2, 1] = v1 + self.Q
-                    else:
-                        if (v2 - v1) < self.Q:
-                            dct_block[1, 2] -= self.Q/2 + 5
-                            dct_block[2, 1] += self.Q/2 + 5
+                        # Se fallisce, aumenta la forza e riprova
+                        alpha += 15 
 
-                b_channel[i:i+self.block_size, j:j+self.block_size] = cv2.idct(dct_block)
-                bit_idx += 1
+                # Scrivi il blocco finale nell'immagine
+                b_channel[y:y+8, x:x+8] = cv2.idct(dct_block)
+                msg_index += 1
+                
+        # Ricomponi immagine
+        img_watermarked = image.copy()
+        img_watermarked[:, :, 0] = np.clip(b_channel, 0, 255).astype(np.uint8)
+        return img_watermarked
 
-        img_float[:, :, 0] = b_channel
-        return np.uint8(img_float)
-
-    def extract_raw_bits(self, b_channel, h, w, off_y, off_x):
-        bits = []
-        step = self.block_size
-        for i in range(off_y, h - step, step):
-            for j in range(off_x, w - step, step):
-                block = b_channel[i:i+step, j:j+step]
+    def extract(self, image):
+        # Estrae tutti i bit possibili dall'immagine
+        h, w, _ = image.shape
+        b_channel = image[:, :, 0].astype(np.float32)
+        
+        extracted_bits = ""
+        
+        blocks_h = h // self.block_size
+        blocks_w = w // self.block_size
+        
+        for row in range(blocks_h):
+            for col in range(blocks_w):
+                y = row * self.block_size
+                x = col * self.block_size
+                
+                block = b_channel[y:y+8, x:x+8]
                 dct_block = cv2.dct(block)
-                if dct_block[1, 2] > dct_block[2, 1]:
-                    bits.append('1')
+                
+                v1 = dct_block[self.u1, self.v1]
+                v2 = dct_block[self.u2, self.v2]
+                
+                if v1 > v2:
+                    extracted_bits += "0"
                 else:
-                    bits.append('0')
-        return "".join(bits)
+                    extracted_bits += "1"
+                    
+        return extracted_bits
 
-    def extract(self, img, expected_len_bytes=None):
-        img_float = np.float32(img)
-        h, w, _ = img_float.shape
-        b_channel = img_float[:, :, 0]
-        
-        candidates = []
-        
-        # Grid Search: prova tutti gli allineamenti possibili
-        # Questo garantisce che il Crop non rompa tutto
-        for dy in range(8):
-            for dx in range(8):
-                raw_bits = self.extract_raw_bits(b_channel, h, w, dy, dx)
-                
-                # Converti bit in testo
-                chars = []
-                for k in range(0, len(raw_bits), 8):
-                    chunk = raw_bits[k:k+8]
-                    if len(chunk) < 8: break
-                    chars.append(chr(int(chunk, 2)))
-                full_text = "".join(chars)
-                
-                # Cerca i marker ###...###
-                matches = re.findall(r'###(.*?)###', full_text)
-                for m in matches:
-                    if len(m) > 0 and all(c.isalnum() or c in "_- " for c in m):
-                        candidates.append(m)
-        
-        if not candidates: return "Nessun dato"
-        return Counter(candidates).most_common(1)[0][0]
+# COMBO: REED SOLOMON + DCT (Il migliore per il progetto)
+class ComboWatermark:
+    def __init__(self):
+        self.dct = DCTWatermark()
+        self.rsc = RSCodec(10) # 10 byte di correzione errori
 
+    def embed(self, image, text):
+        # 1. Aggiungi header fisso per riconoscere l'inizio
+        # "REVENGE" è il marker. Se lo troviamo, abbiamo vinto.
+        full_msg = "REVENGE_" + text
+        
+        # 2. Codifica Reed-Solomon (aggiunge ridondanza errori)
+        msg_bytes = full_msg.encode('utf-8')
+        encoded_data = self.rsc.encode(msg_bytes)
+        
+        # ConvertE byte encoded in stringa latin-1 per passarla bit a bit
+        # (Trucco sporco ma efficace per riusare la logica DCT string-based)
+        encoded_str = "".join([chr(b) for b in encoded_data])
+        
+        return self.dct.embed(image, encoded_str)
+
+    def extract(self, image):
+        # Estrai il flusso grezzo di bit
+        raw_bits = self.dct.extract(image)
+        
+        # Converti bit in bytes
+        bytes_data = bytearray()
+        for i in range(0, len(raw_bits), 8):
+            byte_chunk = raw_bits[i:i+8]
+            if len(byte_chunk) == 8:
+                bytes_data.append(int(byte_chunk, 2))
+        
+        # RICERCA DEL MESSAGGIO (SLIDING WINDOW) 
+        # Poiché abbiamo ripetuto il messaggio (Tiling), cerchiamo
+        # ovunque un blocco valido decodificabile con ReedSolomon
+        
+        # Lunghezza stimata del pacchetto (messaggio + ecc). 
+        # Cerchiamo chunk da 20 a 60 byte
+        for length in range(20, 100): 
+            for start in range(0, len(bytes_data) - length, 1): # Scan byte per byte
+                chunk = bytes(bytes_data[start : start+length])
+                try:
+                    # Prova a decodificare
+                    decoded = self.rsc.decode(chunk)[0]
+                    text = decoded.decode('utf-8')
+                    
+                    # Se troviamo il marker, è lui al 100%
+                    if text.startswith("REVENGE_"):
+                        return text.replace("REVENGE_", "")
+                        
+                except (ReedSolomonError, UnicodeDecodeError, ValueError):
+                    continue
+                    
+        return "Nessuna firma rilevata (o immagine troppo corrotta)"
+
+# Placeholder per SS (Spread Spectrum) se serve
 class SSWatermark:
-    def __init__(self, key=42): pass
-    def embed(self, img): return img
+    def embed(self, img, msg): return img # Da implementare se richiesto
+    def extract(self, img): return "Non implementato"

@@ -5,8 +5,13 @@ import 'dart:io';
 import 'dart:convert';
 import 'package:url_launcher/url_launcher.dart';
 
+// IMPORTA LA TUA PAGINA DI REGISTRAZIONE
+// Assicurati che il file si chiami esattamente 'register_page.dart' e sia nella cartella lib/
+import 'register_page.dart';
+
 // CONFIGURAZIONE
-// Usa 127.0.0.1 per Linux Desktop.
+// Usa 127.0.0.1 per Linux Desktop/Web.
+// Se usi Emulatore Android, cambia in: "http://10.0.2.2:5001"
 const String SERVER_IP = "http://127.0.0.1:5001"; 
 
 void main() => runApp(MyApp());
@@ -79,7 +84,17 @@ class _LoginPageState extends State<LoginPage> {
             SizedBox(height: 10),
             TextField(controller: _passCtrl, decoration: InputDecoration(labelText: "Password", border: OutlineInputBorder()), obscureText: true),
             SizedBox(height: 20),
-            SizedBox(width: double.infinity, child: ElevatedButton(onPressed: login, child: Text("ACCEDI")))
+            
+            SizedBox(width: double.infinity, child: ElevatedButton(onPressed: login, child: Text("ACCEDI"))),
+            
+            SizedBox(height: 15),
+            // --- PULSANTE REGISTRAZIONE AGGIUNTO ---
+            TextButton(
+              onPressed: () {
+                Navigator.push(context, MaterialPageRoute(builder: (context) => RegisterPage()));
+              }, 
+              child: Text("Non hai un account? Registrati qui")
+            )
           ],
         ),
       ),
@@ -110,7 +125,7 @@ class _MyHomePageState extends State<MyHomePage> {
     final List<Widget> _pages = [
       SendTab(username: widget.username),     // Tab 0: Invia
       InboxTab(username: widget.username, userCode: widget.userCode), // Tab 1: Posta
-      VerifyTab(),                            // Tab 2: Verifica (NUOVA)
+      VerifyTab(),                            // Tab 2: Verifica
     ];
 
     return Scaffold(
@@ -127,8 +142,8 @@ class _MyHomePageState extends State<MyHomePage> {
         selectedItemColor: Colors.indigo,
         items: [
           BottomNavigationBarItem(icon: Icon(Icons.send), label: "Invia"),
-          BottomNavigationBarItem(icon: Icon(Icons.mail), label: "Posta"),
-          BottomNavigationBarItem(icon: Icon(Icons.manage_search), label: "Verifica"), // Terzo bottone
+          BottomNavigationBarItem(icon: Icon(Icons.lock), label: "Posta"), // Icona Lucchetto
+          BottomNavigationBarItem(icon: Icon(Icons.manage_search), label: "Verifica"),
         ],
       ),
     );
@@ -225,7 +240,7 @@ class _SendTabState extends State<SendTab> {
   }
 }
 
-// --- TAB 2: POSTA (CON FIX DOWNLOAD) ---
+// --- TAB 2: POSTA (MODIFICATA: NO ANTEPRIMA) ---
 class InboxTab extends StatefulWidget {
   final String username;
   final String userCode;
@@ -258,7 +273,7 @@ class _InboxTabState extends State<InboxTab> {
   }
 
   Future accept(String reqId) async {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Applicazione firma digitale in corso...")));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Applicazione firma in corso...")));
     try {
       var res = await http.post(
         Uri.parse('$SERVER_IP/accept_transfer'),
@@ -316,14 +331,38 @@ class _InboxTabState extends State<InboxTab> {
             itemBuilder: (ctx, i) {
                var item = data[i];
                return Card(
-                margin: EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                child: ListTile(
-                  leading: item['preview_url'] != null 
-                    ? Image.network(item['preview_url'], width: 50, height: 50, fit: BoxFit.cover, errorBuilder: (c,o,s)=>Icon(Icons.image)) 
-                    : Icon(Icons.image),
-                  title: Text("Da: ${item['sender']}"),
-                  subtitle: Text("Metodo: ${item['algo']}"),
-                  trailing: ElevatedButton(child: Text("FIRMA"), onPressed: () => accept(item['request_id'])),
+                elevation: 4,
+                margin: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                child: Column(
+                  children: [
+                    // --- ZONA CRITTOGRAFATA (NASCONDE L'IMMAGINE) ---
+                    Container(
+                      height: 120,
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.vertical(top: Radius.circular(4))
+                      ),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.lock, size: 40, color: Colors.grey[700]),
+                          SizedBox(height: 5),
+                          Text("IMMAGINE PROTETTA", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey[800])),
+                          Text("Accetta per rivelare e scaricare", style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                        ],
+                      ),
+                    ),
+                    ListTile(
+                      title: Text("Da: ${item['sender']}"),
+                      subtitle: Text("Metodo richiesto: ${item['algo']}"),
+                      trailing: ElevatedButton(
+                        child: Text("ACCETTA"), 
+                        onPressed: () => accept(item['request_id']),
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo, foregroundColor: Colors.white),
+                      ),
+                    ),
+                  ],
                 ),
               );
             },
@@ -362,10 +401,14 @@ class _VerifyTabState extends State<VerifyTab> {
       var body = jsonDecode(respStr);
 
       setState(() {
-        if (body['watermark'] != null) {
-          _result = "✅ FIRMA TROVATA!\n\nContenuto: ${body['watermark']}\nAlgo: ${body['algorithm']}";
+        if (body['found'] == true) {
+          _result = "✅ FIRMA TROVATA!\n\n"
+                    "Mittente: ${body['sender']}\n"
+                    "Destinatario: ${body['receiver']}\n"
+                    "Tecnica: ${body['technique']}\n"
+                    "Raw: ${body['watermark']}";
         } else {
-          _result = "❌ NESSUNA FIRMA.\nIl file è troppo danneggiato o non è firmato.";
+          _result = "❌ NESSUNA FIRMA.\nIl file è pulito o troppo danneggiato.\nDettagli grezzi: ${body['watermark']}";
         }
       });
     } catch (e) {
