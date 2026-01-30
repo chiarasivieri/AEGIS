@@ -1,5 +1,5 @@
 
--# Aegis — Condivisione Sicura di Immagini con Digital Watermarking
+# Aegis — Condivisione Sicura di Immagini con Digital Watermarking #
 
 ## Panoramica
 **Aegis** è un proof-of-concept sviluppato nell’ambito del corso di **Cybersecurity** presso l’**Alma Mater Studiorum – Università di Bologna** (A.A. 2025/2026).
