@@ -2,7 +2,6 @@ import os
 import cv2
 import time
 import uuid
-import difflib
 import re
 import numpy as np
 from flask import Flask, request, jsonify, send_from_directory
@@ -10,16 +9,12 @@ from flask_cors import CORS
 from werkzeug.utils import secure_filename
 
 # IMPORTIAMO GLI ALGORITMI
-# Assicurati che il file algorithms.py sia nella stessa cartella
 from algorithms import LSBWatermark, DCTWatermark, SSWatermark, ComboWatermark
 
 app = Flask(__name__)
-# Abilita CORS per permettere a Flutter di comunicare
 CORS(app, resources={r"/*": {"origins": "*"}})
 
-
-# CONFIGURAZIONE E DATABASE
-
+# DATABASE SIMULATO
 USERS_DB = {
     "admin":  {"pass": "admin", "code": "SUPER_USER"},
     "chiara": {"pass": "1234", "code": "USR_0001"},
@@ -32,7 +27,6 @@ UPLOAD_FOLDER = 'uploads'
 TEMP_FOLDER = 'uploads/temp'
 RESULTS_FOLDER = 'results'
 
-# Creiamo le cartelle se non esistono
 for folder in [UPLOAD_FOLDER, TEMP_FOLDER, RESULTS_FOLDER]:
     os.makedirs(folder, exist_ok=True)
 
@@ -44,179 +38,118 @@ def get_next_user_code():
     count = len(USERS_DB) + 1
     return f"USR_{count:04d}"
 
-
-# FUNZIONI HELPER
-
+# --- FUNZIONE DI RICERCA FLESSIBILE ---
 def fuzzy_search_users(text):
-    """
-    Analizza il testo estratto per trovare mittente e destinatario.
-    """
-    if not text: 
-        return False, "Sconosciuto", "Sconosciuto", ""
+    if not text: return False, "Sconosciuto", "Sconosciuto", ""
     
-    # Puliamo il testo da caratteri strani
     clean_text = "".join(c for c in text if c.isprintable())
-    found = False
     sender = "Sconosciuto"
     receiver = "Sconosciuto"
+    found = False
     
-    # Cerca pattern tipo USR_xxxx
-    matches = list(re.finditer(r"USR_\d{4}|SUPER_USER", clean_text))
+    # Cerca codici USR_xxxx
+    codes = re.findall(r"USR_\d{4}|SUPER_USER", clean_text)
     
-    # Caso 1: Trovati due codici (Mittente e Destinatario)
-    if len(matches) >= 2:
-        code1 = matches[0].group()
-        code2 = matches[1].group()
-        
-        # Mappa codici a nomi
+    if len(codes) >= 2:
+        code1, code2 = codes[0], codes[1]
         for u, d in USERS_DB.items():
             if d['code'] == code1: sender = f"{u} ({code1})"
             if d['code'] == code2: receiver = f"{u} ({code2})"
         found = True
+    elif len(codes) == 1:
+        # Trovato parziale
+        sender = f"Parziale: {codes[0]}"
+        found = True
+    elif "<->" in clean_text:
+        # Trovato separatore ma codici corrotti
+        sender = "Firma corrotta"
+        found = True
         
-    # Caso 2: Trovato solo un codice o formato <->
-    elif "USR_" in clean_text or "<->" in clean_text:
-        parts = clean_text.split('<->')
-        if len(parts) == 2:
-            s_code = parts[0].strip()
-            r_code = parts[1].strip()
-            
-            for u, d in USERS_DB.items():
-                if d['code'] in s_code: sender = f"{u} ({d['code']})"
-                if d['code'] in r_code: receiver = f"{u} ({d['code']})"
-            found = True
-        elif len(matches) == 1:
-            code = matches[0].group()
-            sender = f"Rilevato: {code}"
-            found = True
-
     return found, sender, receiver, clean_text
 
-# ROTTE PRINCIPALI
-
+# --- ROTTE ---
 
 @app.route('/verify', methods=['POST'])
 def verify_image():
-    """
-    Verifica l'immagine caricata cercando il watermark.
-    """
-    if 'image' not in request.files:
-        return jsonify({'error': 'No file'}), 400
+    if 'image' not in request.files: return jsonify({'error': 'No file'}), 400
 
     file = request.files['image']
-    # Salviamo temporaneamente come PNG per non alterare i pixel
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], 'check_temp.png')
     file.save(filepath)
 
-    # Carica immagine
     original_img = cv2.imread(filepath)
-    if original_img is None:
-        return jsonify({'error': 'Immagine non valida'}), 400
+    if original_img is None: return jsonify({'error': 'Img error'}), 400
 
-    print(f"\n{'='*40}\n🔍 VERIFICA AVVIATA\n{'='*40}")
+    print(f"\n🔍 VERIFICA AVVIATA...")
 
-    # Usiamo ComboWatermark (che include Reed-Solomon + DCT)
     verifier = ComboWatermark()
-
+    
     found = False
-    sender = "Sconosciuto"
-    receiver = "Sconosciuto"
-    technique = "Nessuna firma trovata"
+    sender = "..."
+    receiver = "..."
+    technique = "Nessuna firma"
     raw_sig = ""
 
     try:
-        print("⚡ Provo estrazione...")
         extracted_msg = verifier.extract(original_img)
+        print(f"📄 LOG ESTRAZIONE: {extracted_msg}") # Logghiamo sempre
         
-        # Controllo se il messaggio ha senso (contiene USR_ o il separatore <->)
         if extracted_msg and ("USR_" in extracted_msg or "<->" in extracted_msg):
-            print(f"✅ TROVATO! Messaggio: {extracted_msg}")
+            print(f"✅ SUCCESSO! Messaggio valido identificato.")
             found, sender, receiver, raw_sig = fuzzy_search_users(extracted_msg)
-            technique = "Analisi Spettrale/DCT (Riuscita)"
+            technique = "Firma Recuperata (Combo)"
         else:
-            print("❌ Nessuna firma rilevata.")
+            print("❌ Nessun pattern USR_ trovato nel testo estratto.")
 
     except Exception as e:
-        print(f"⚠️ Errore durante estrazione: {e}")
+        print(f"Error: {e}")
 
-    # Risposta Finale JSON
+    # --- IL TRUCCO È QUI: Restituiamo TUTTE le chiavi possibili ---
+    # L'app vecchia cerca 'found' e 'watermark'
+    # L'app nuova cerca 'verified' e 'signature'
     return jsonify({
-        'verified': found,
+        'verified': found,      # Nuova versione
+        'found': found,         # Vecchia versione (CRUCIALE)
         'sender': sender,
         'receiver': receiver,
         'technique': technique,
-        'signature': raw_sig
+        'signature': raw_sig,   # Nuova versione
+        'watermark': raw_sig    # Vecchia versione (CRUCIALE)
     }), 200
-
 
 @app.route('/accept_transfer', methods=['POST'])
 def accept_transfer():
-    """
-    Applica il watermark e salva il file finale.
-    QUESTA È LA PARTE CHE ABBIAMO MODIFICATO PER IL DOWNLOAD SICURO.
-    """
     rid = request.json.get('request_id')
-    if rid not in PENDING_DB: 
-        return jsonify({'error': 'Richiesta scaduta o inesistente'}), 404
+    if rid not in PENDING_DB: return jsonify({'error': 'No req'}), 404
     
     info = PENDING_DB.pop(rid)
     
-    # Costruzione firma: MITTENTE<->DESTINATARIO
-    # Esempio: USR_0001<->USR_0002
-    sender_code = next((v['code'] for k, v in USERS_DB.items() if k == info['sender'].lower()), 'UNK')
+    sender_code = "UNK"
+    for k,v in USERS_DB.items():
+        if k == info['sender'].lower(): sender_code = v['code']
+        
     receiver_code = USERS_DB[info['receiver']]['code']
     signature = f"{sender_code}<->{receiver_code}"
     
-    print(f"📝 SCRITTURA FIRMA: {signature} su file {info['filepath']}")
+    print(f"📝 SCRITTURA: {signature}")
     
-    try:
-        # 1. Carica immagine originale dal temp
-        img = cv2.imread(info['filepath'])
-        if img is None: raise Exception("Impossibile aprire il file temp")
+    img = cv2.imread(info['filepath'])
+    # Usa l'algoritmo che hai scelto (quello che funziona)
+    wm = ComboWatermark()
+    watermarked_img = wm.embed(img, signature)
+    
+    out_filename = f"secure_{int(time.time())}.png"
+    out_path = os.path.join(app.config['RESULTS_FOLDER'], out_filename)
+    cv2.imwrite(out_path, watermarked_img)
+    
+    if os.path.exists(info['filepath']): os.remove(info['filepath'])
 
-        # 2. Applica il Watermark
-        algo_name = info.get('algo', 'COMBO')
-        
-        if algo_name == 'COMBO':
-            # Usa la nuova classe robusta
-            wm = ComboWatermark()
-            watermarked_img = wm.embed(img, signature)
-        elif algo_name == 'LSB':
-            watermarked_img = LSBWatermark().embed(img, signature)
-        elif algo_name == 'DCT':
-            watermarked_img = DCTWatermark().embed(img, signature)
-        elif algo_name == 'SS':
-            # SS semplice, non supporta testo variabile nel nostro esempio
-            watermarked_img = SSWatermark().embed(img, "SS_KEY") 
-        else:
-            watermarked_img = img
+    return jsonify({
+        'signature': signature, 
+        'url': f"http://127.0.0.1:5001/results/{out_filename}"
+    }), 200
 
-        # 3. SALVATAGGIO FONDAMENTALE
-        # Forziamo l'estensione .png per evitare la compressione JPEG che distrugge il watermark
-        out_filename = f"secure_{int(time.time())}.png"
-        out_path = os.path.join(app.config['RESULTS_FOLDER'], out_filename)
-        
-        # Scrive il file su disco
-        cv2.imwrite(out_path, watermarked_img)
-
-        # Pulizia file temporaneo originale
-        if os.path.exists(info['filepath']): os.remove(info['filepath'])
-
-        # Restituisce l'URL per scaricare il file protetto
-        # Nota: L'app Flutter riceverà un URL che finisce per .png
-        return jsonify({
-            'signature': signature, 
-            'url': f"http://127.0.0.1:5001/results/{out_filename}"
-        }), 200
-
-    except Exception as e:
-        print(f"ERRORE SCRITTURA: {e}")
-        return jsonify({'error': str(e)}), 500
-
-
-# ALTRE ROTTE DI SUPPORTO
-
-
+# LOGIN & ALTRE ROTTE STANDARD (Invariate)
 @app.route('/register', methods=['POST'])
 def register():
     data = request.json
@@ -243,9 +176,6 @@ def request_transfer():
     f.save(fpath)
     
     rid = str(uuid.uuid4())
-    # Default algo is COMBO
-    algo = request.form.get('algorithm', 'COMBO')
-    
     sender = request.form.get('sender_name')
     receiver_name = request.form.get('receiver_name', '').lower()
     receiver_key = next((k for k in USERS_DB if k == receiver_name), 'admin')
@@ -254,7 +184,7 @@ def request_transfer():
         'sender': sender, 
         'receiver': receiver_key, 
         'filepath': fpath, 
-        'algo': algo
+        'algo': 'COMBO'
     }
     return jsonify({'message': 'OK', 'req_id': rid}), 200
 
@@ -273,14 +203,11 @@ def get_pending():
     return jsonify(inbox), 200
 
 @app.route('/temp_preview/<path:filename>')
-def serve_temp(filename): 
-    return send_from_directory(app.config['TEMP_FOLDER'], filename)
+def serve_temp(filename): return send_from_directory(app.config['TEMP_FOLDER'], filename)
 
 @app.route('/results/<path:filename>')
-def serve_res(filename): 
-    return send_from_directory(app.config['RESULTS_FOLDER'], filename)
+def serve_res(filename): return send_from_directory(app.config['RESULTS_FOLDER'], filename)
 
 if __name__ == '__main__':
-    print('AEGIS BACKEND PRONTO')
-    # Usa 0.0.0.0 per essere raggiungibile da rete esterna/simulatore
+    print('AEGIS BACKEND - HYBRID RESPONSE MODE')
     app.run(host='0.0.0.0', port=5001, debug=True)

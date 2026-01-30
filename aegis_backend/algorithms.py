@@ -1,228 +1,213 @@
 import cv2
 import numpy as np
-from reedsolo import RSCodec, ReedSolomonError
+import re
 
-# LSB WATERMARK (Semplice, per demo)
+# --- 1. LSB WATERMARK (Fragile - per integrità) ---
 class LSBWatermark:
-    def embed(self, image, secret_message):
-        # Aggiungiamo un terminatore univoco
-        secret_message += "#####"
-        binary_message = ''.join(format(ord(char), '08b') for char in secret_message)
-        data_len = len(binary_message)
+    def embed(self, image, message):
+        # Aggiungiamo un terminatore semplice
+        msg = message + "#####"
+        binary = ''.join(format(ord(c), '08b') for c in msg)
         
-        flat_image = image.flatten()
-        if data_len > len(flat_image):
-            raise ValueError("Messaggio troppo lungo!")
+        flat = image.flatten()
+        if len(binary) > len(flat): return image # Troppo lungo, ignoriamo
+        
+        # Scrittura veloce
+        for i in range(len(binary)):
+            flat[i] = (flat[i] & 254) | int(binary[i])
             
-        for i in range(data_len):
-            # Azzera l'ultimo bit e metti il nostro
-            flat_image[i] = (flat_image[i] & 254) | int(binary_message[i])
-            
-        return flat_image.reshape(image.shape)
+        return flat.reshape(image.shape)
 
     def extract(self, image):
-        flat_image = image.flatten()
-        binary_data = ""
-        # Leggiamo i primi 4000 byte per sicurezza
-        limit = min(len(flat_image), 4000 * 8)
+        flat = image.flatten()
+        # Leggiamo i primi bit e cerchiamo il terminatore
+        bits = ""
+        # Leggiamo abbastanza bit per trovare la firma (es. 2000 bit)
+        limit = min(len(flat), 4000)
         
         for i in range(limit):
-            binary_data += str(flat_image[i] & 1)
+            bits += str(flat[i] & 1)
             
-        all_bytes = [binary_data[i: i+8] for i in range(0, len(binary_data), 8)]
-        decoded_data = ""
-        
-        for byte in all_bytes:
-            try:
-                char = chr(int(byte, 2))
-                decoded_data += char
-                if decoded_data.endswith("#####"):
-                    return decoded_data[:-5]
-            except:
-                pass
+        # Convertiamo a caratteri
+        chars = []
+        for i in range(0, len(bits), 8):
+            byte = bits[i:i+8]
+            if len(byte) == 8:
+                try: chars.append(chr(int(byte, 2)))
+                except: pass
+                
+        full_text = "".join(chars)
+        if "#####" in full_text:
+            return full_text.split("#####")[0]
         return ""
 
-# DCT WATERMARK (ROBUSTO)
+# --- 2. DCT WATERMARK (Strategia "Ripetizione Infinita") ---
 class DCTWatermark:
     def __init__(self):
         self.block_size = 8
-        # Coefficienti DCT da modificare (frequenze medie, robuste a compressione)
-        self.u1, self.v1 = 4, 3 
-        self.u2, self.v2 = 3, 4 
+        # Coefficienti robusti (Medie frequenze)
+        self.u1, self.v1 = 4, 3
+        self.u2, self.v2 = 3, 4
+        # Forza della scrittura (più è alto, più resiste al JPG, ma si vede un po')
+        self.alpha = 100.0 
 
-    def embed(self, image, secret_message):
-        # 1. Converti stringa in bit
-        binary_message = ''.join(format(ord(char), '08b') for char in secret_message)
-        msg_len = len(binary_message)
-        
-        # Lavoriamo sul canale Blu (o Y in YUV), qui usiamo BGR -> Blu è canale 0
+    def embed(self, image, message):
         h, w, _ = image.shape
-        b_channel = image[:, :, 0].astype(np.float32)
+        # Usiamo il canale VERDE (indice 1), spesso compresso meno del blu
+        # o YUV se preferisci, ma BGR è più semplice da gestire qui senza conversioni errate
+        vis_image = image.astype(np.float32)
+        channel = vis_image[:, :, 1] 
+
+        # PREPARAZIONE MESSAGGIO
+        # Formato: ###MESSAGGIO###
+        # Lo ripetiamo finché non riempiamo l'immagine
+        marker = "###"
+        full_msg_unit = marker + message + marker
+        bits_unit = ''.join(format(ord(c), '08b') for c in full_msg_unit)
         
-        # Calcola quanti blocchi abbiamo
         blocks_h = h // self.block_size
         blocks_w = w // self.block_size
-        total_blocks = blocks_h * blocks_w
+        max_bits = blocks_h * blocks_w
         
-        # TILING: Ripetiamo il messaggio finché riempiamo l'immagine
-        # Questo aiuta contro il CROP
-        full_message_bits = (binary_message * (total_blocks // msg_len + 1))[:total_blocks]
+        # Creiamo un flusso infinito di bit ripetuti
+        repeats = (max_bits // len(bits_unit)) + 1
+        full_bits_stream = (bits_unit * repeats)[:max_bits]
         
-        msg_index = 0
+        bit_idx = 0
         
+        print(f"--- DCT: Scrivo il messaggio ripetuto {repeats} volte ---")
+
         for row in range(blocks_h):
             for col in range(blocks_w):
-                if msg_index >= len(full_message_bits):
-                    break
-                    
-                bit = int(full_message_bits[msg_index])
+                if bit_idx >= len(full_bits_stream): break
                 
                 # Coordinate blocco
                 y = row * self.block_size
                 x = col * self.block_size
                 
-                block = b_channel[y:y+8, x:x+8]
+                block = channel[y:y+8, x:x+8]
                 dct_block = cv2.dct(block)
                 
-                # LOGICA ROBUSTAcd 
-                # Modifichiamo i valori finché la differenza non regge all'arrotondamento
+                # Logica di embedding
                 v1 = dct_block[self.u1, self.v1]
                 v2 = dct_block[self.u2, self.v2]
+                bit = int(full_bits_stream[bit_idx])
                 
-                alpha = 100
-                max_attempts = 5 # Evita loop infiniti
+                if bit == 0:
+                    if v1 <= v2 + self.alpha:
+                        diff = (v2 + self.alpha - v1) / 2.0
+                        v1 += diff
+                        v2 -= diff
+                else: # bit == 1
+                    if v2 <= v1 + self.alpha:
+                        diff = (v1 + self.alpha - v2) / 2.0
+                        v2 += diff
+                        v1 -= diff
                 
-                for _ in range(max_attempts):
-                    if bit == 0:
-                        # Vogliamo v1 > v2
-                        if v1 <= v2 + alpha:
-                            diff = (v2 + alpha - v1) / 2.0
-                            v1 += diff
-                            v2 -= diff
-                    else: # bit == 1
-                        # Vogliamo v2 > v1
-                        if v2 <= v1 + alpha:
-                            diff = (v1 + alpha - v2) / 2.0
-                            v2 += diff
-                            v1 -= diff
-                    
-                    # Applica modifiche
-                    dct_block[self.u1, self.v1] = v1
-                    dct_block[self.u2, self.v2] = v2
-                    
-                    # CHECK DI VALIDITÀ
-                    # Simuliamo la riconversione in immagine
-                    idct_block = cv2.idct(dct_block)
-                    # Arrotondiamo come farebbe il salvataggio file
-                    rounded_block = np.clip(idct_block, 0, 255).astype(np.uint8).astype(np.float32)
-                    # Rifacciamo la DCT per vedere cosa si legge
-                    check_dct = cv2.dct(rounded_block)
-                    
-                    c1 = check_dct[self.u1, self.v1]
-                    c2 = check_dct[self.u2, self.v2]
-                    
-                    # Se il bit è leggibile correttamente, usciamo dal loop
-                    if bit == 0 and c1 > c2 + 5: # +5 margine di sicurezza
-                        break
-                    elif bit == 1 and c2 > c1 + 5:
-                        break
-                    else:
-                        # Se fallisce, aumenta la forza e riprova
-                        alpha += 15 
-
-                # Scrivi il blocco finale nell'immagine
-                b_channel[y:y+8, x:x+8] = cv2.idct(dct_block)
-                msg_index += 1
+                dct_block[self.u1, self.v1] = v1
+                dct_block[self.u2, self.v2] = v2
                 
-        # Ricomponi immagine
-        img_watermarked = image.copy()
-        img_watermarked[:, :, 0] = np.clip(b_channel, 0, 255).astype(np.uint8)
-        return img_watermarked
+                channel[y:y+8, x:x+8] = cv2.idct(dct_block)
+                bit_idx += 1
+                
+        # Salviamo
+        vis_image[:, :, 1] = channel
+        return np.clip(vis_image, 0, 255).astype(np.uint8)
 
     def extract(self, image):
-        # Estrae tutti i bit possibili dall'immagine
         h, w, _ = image.shape
-        b_channel = image[:, :, 0].astype(np.float32)
-        
-        extracted_bits = ""
+        vis_image = image.astype(np.float32)
+        channel = vis_image[:, :, 1]
         
         blocks_h = h // self.block_size
         blocks_w = w // self.block_size
         
+        bits = []
+        
+        # 1. ESTRAZIONE MASSIVA
+        # Leggiamo tutti i bit dell'immagine
         for row in range(blocks_h):
             for col in range(blocks_w):
                 y = row * self.block_size
                 x = col * self.block_size
                 
-                block = b_channel[y:y+8, x:x+8]
-                dct_block = cv2.dct(block)
+                # Check bordi
+                if y+8 > h or x+8 > w: continue
+
+                dct_block = cv2.dct(channel[y:y+8, x:x+8])
                 
                 v1 = dct_block[self.u1, self.v1]
                 v2 = dct_block[self.u2, self.v2]
                 
-                if v1 > v2:
-                    extracted_bits += "0"
-                else:
-                    extracted_bits += "1"
-                    
-        return extracted_bits
+                if v1 > v2: bits.append('0')
+                else: bits.append('1')
+                
+        # 2. RICERCA DEL TESORO (Pattern Matching)
+        # Convertiamo i bit in una lunghissima stringa di testo
+        # Ogni 8 bit -> 1 carattere
+        full_text = ""
+        # Ottimizzazione: processiamo a chunk per non esplodere
+        raw_bits_str = "".join(bits)
+        
+        chars = []
+        for i in range(0, len(raw_bits_str), 8):
+            byte = raw_bits_str[i:i+8]
+            if len(byte) == 8:
+                try: 
+                    # Filtro caratteri validi per evitare crash su caratteri strani
+                    val = int(byte, 2)
+                    if 32 <= val <= 126: # Solo caratteri stampabili ASCII
+                        chars.append(chr(val))
+                    else:
+                        chars.append('?') # Placeholder per rumore
+                except: pass
+                
+        giant_string = "".join(chars)
+        
+        # Debug nel terminale: vediamo se c'è qualcosa
+        print(f"DEBUG ESTRAZIONE (Primi 100 char): {giant_string[:100]}")
+        
+        # 3. CERCA I MARKER "###"
+        # Usiamo una regex per trovare "###...###"
+        # Il '.*?' significa "prendi tutto quello che c'è in mezzo"
+        matches = re.findall(r'###(.*?)###', giant_string)
+        
+        for match in matches:
+            # Filtriamo i falsi positivi
+            if "USR_" in match or "<->" in match:
+                return match # Trovato!
+            if len(match) > 5 and len(match) < 50:
+                 # Fallback: se troviamo testo che sembra sensato
+                 return match
+                 
+        return ""
 
-# COMBO: REED SOLOMON + DCT (Il migliore per il progetto)
+# --- 3. COMBO (Usa entrambe) ---
 class ComboWatermark:
     def __init__(self):
+        self.lsb = LSBWatermark()
         self.dct = DCTWatermark()
-        self.rsc = RSCodec(10) # 10 byte di correzione errori
-
+        
     def embed(self, image, text):
-        # 1. Aggiungi header fisso per riconoscere l'inizio
-        # "REVENGE" è il marker. Se lo troviamo, abbiamo vinto.
-        full_msg = "REVENGE_" + text
+        # Prima DCT (Robusto)
+        temp = self.dct.embed(image, text)
+        # Poi LSB (Fragile)
+        final = self.lsb.embed(temp, text)
+        return final
         
-        # 2. Codifica Reed-Solomon (aggiunge ridondanza errori)
-        msg_bytes = full_msg.encode('utf-8')
-        encoded_data = self.rsc.encode(msg_bytes)
-        
-        # ConvertE byte encoded in stringa latin-1 per passarla bit a bit
-        # (Trucco sporco ma efficace per riusare la logica DCT string-based)
-        encoded_str = "".join([chr(b) for b in encoded_data])
-        
-        return self.dct.embed(image, encoded_str)
-
     def extract(self, image):
-        # Estrai il flusso grezzo di bit
-        raw_bits = self.dct.extract(image)
+        # Proviamo LSB
+        res = self.lsb.extract(image)
+        if res and ("USR_" in res or "<->" in res):
+            return res
+            
+        # Proviamo DCT
+        res = self.dct.extract(image)
+        if res:
+            return res
+            
+        return ""
         
-        # Converti bit in bytes
-        bytes_data = bytearray()
-        for i in range(0, len(raw_bits), 8):
-            byte_chunk = raw_bits[i:i+8]
-            if len(byte_chunk) == 8:
-                bytes_data.append(int(byte_chunk, 2))
-        
-        # RICERCA DEL MESSAGGIO (SLIDING WINDOW) 
-        # Poiché abbiamo ripetuto il messaggio (Tiling), cerchiamo
-        # ovunque un blocco valido decodificabile con ReedSolomon
-        
-        # Lunghezza stimata del pacchetto (messaggio + ecc). 
-        # Cerchiamo chunk da 20 a 60 byte
-        for length in range(20, 100): 
-            for start in range(0, len(bytes_data) - length, 1): # Scan byte per byte
-                chunk = bytes(bytes_data[start : start+length])
-                try:
-                    # Prova a decodificare
-                    decoded = self.rsc.decode(chunk)[0]
-                    text = decoded.decode('utf-8')
-                    
-                    # Se troviamo il marker, è lui al 100%
-                    if text.startswith("REVENGE_"):
-                        return text.replace("REVENGE_", "")
-                        
-                except (ReedSolomonError, UnicodeDecodeError, ValueError):
-                    continue
-                    
-        return "Nessuna firma rilevata (o immagine troppo corrotta)"
-
-# Placeholder per SS (Spread Spectrum) se serve
 class SSWatermark:
-    def embed(self, img, msg): return img # Da implementare se richiesto
-    def extract(self, img): return "Non implementato"
+    def embed(self, img, k=None): return img
+    def extract(self, img): return ""
