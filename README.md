@@ -11,8 +11,6 @@ Il progetto affronta il problema della **non ripudiabilità** nella condivisione
 - ✂️ ritaglio (*cropping*)
 - 🔁 ricodifica e ridimensionamento
 
-> ⚠️ **Nota:** progetto didattico/accademico. Non garantisce validità forense in contesti legali o di produzione senza ulteriori verifiche/certificazioni.
-
 ---
 
 ## 🧱 Architettura
@@ -114,7 +112,7 @@ flutter run
 2. 🕵🏻‍♀️ **Verifica Forense:** Utilizzare il file `admin_check.html` o l'apposita sezione dell'app per caricare un'immagine sospetta.
 3. 🧐 **Analisi:** Il sistema restituirà i payload estratti (ID Mittente/Destinatario) e la tecnica rilevata.
 
-## ✋🏻 Disclaimer
+## ✋⚠️ Disclaimer
 
 Questo software è stato sviluppato a scopo puramente didattico e accademico. L'efficacia forense del watermarking non è garantita per utilizzi legali in ambienti di produzione senza ulteriori certificazioni.
 
