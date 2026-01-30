@@ -132,8 +132,8 @@ Questo software è stato sviluppato a scopo puramente didattico e accademico. L'
 ---
 ## Autori
 
-* **Marzia De Maina**
-* **Chiara Sivieri**
+* **Marzia De Maina** -- Mat. 0001194461
+* **Chiara Sivieri** - Mat. 0001198267
 
 Alma Mater Studiorum - Università di Bologna
 Corso di Cybersecurity - A.A. 2025/2026
