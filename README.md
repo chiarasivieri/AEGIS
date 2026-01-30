@@ -1,46 +1,46 @@
 
--# 🛡️ Aegis — Condivisione Sicura di Immagini con Digital Watermarking
+-# Aegis — Condivisione Sicura di Immagini con Digital Watermarking
 
-## 👀 Panoramica
+## Panoramica
 **Aegis** è un proof-of-concept sviluppato nell’ambito del corso di **Cybersecurity** presso l’**Alma Mater Studiorum – Università di Bologna** (A.A. 2025/2026).
 
 Il progetto affronta il problema della **non ripudiabilità** nella condivisione di contenuti sensibili, colmando il gap forense lasciato dalle comuni app di messaggistica.
 
-✨ Aegis introduce un sistema di **watermarking invisibile** che lega l’identità del **mittente** e del **destinatario** all’immagine stessa, trasformandola in una **prova forense** più resiliente a manipolazioni come:
-- 🗜️ compressione (es. JPEG)
-- ✂️ ritaglio (*cropping*)
-- 🔁 ricodifica e ridimensionamento
+Aegis introduce un sistema di **watermarking invisibile** che lega l’identità del **mittente** e del **destinatario** all’immagine stessa, trasformandola in una **prova forense** più resiliente a manipolazioni come:
+- compressione (es. JPEG)
+- ritaglio (*cropping*)
+- ricodifica e ridimensionamento
 
 ---
 
-## 🧱 Architettura
+## Architettura
 Il sistema adotta un’architettura **Client–Server**:
 
-- 🧠 **Backend (Python/Flask)**  
+- **Backend (Python/Flask)**  
   Motore forense per embedding/estrazione del watermark, trasformate (DCT) e API REST.
-- 📱 **Frontend (Dart/Flutter)**  
+- **Frontend (Dart/Flutter)**  
   App mobile cross-platform per upload sicuro e gestione utente.
 
 ---
 
-## 🔐 Algoritmo: *Aegis Combo* (Dual Layer)
+## Algoritmo: *Aegis Combo* (Dual Layer)
 Il core del progetto è la classe `ComboWatermark`, che implementa una strategia a **doppio livello**:
 
-1. 📈 **Layer Robusto (DCT)**  
+1. **Layer Robusto (DCT)**  
    L’immagine viene trasformata nel dominio delle frequenze e il watermark viene inserito nei coefficienti della **DCT**, aumentando la resistenza a compressione JPEG e ridimensionamento.
 
-2. 🧬 **Layer di Integrità (LSB)**  
+2. **Layer di Integrità (LSB)**  
    Sull’immagine risultante viene applicata una steganografia **LSB (Least Significant Bit)** per una verifica rapida dell’integrità (*bit-exact*).
 
-3. 🧩 **Resilienza al Cropping**  
+3. **Resilienza al Cropping**  
    L’algoritmo utilizza:
-   - 🧱 **Tiling** (ripetizione della firma su più blocchi)
-   - 🔎 **Grid Search** (scansione a finestra mobile)  
+   - **Tiling** (ripetizione della firma su più blocchi)
+   - **Grid Search** (scansione a finestra mobile)  
    per recuperare la firma anche da immagini parzialmente ritagliate.
 
 ---
 
-## 🗂️ Struttura della repository
+## Struttura della repository
 ```text
 /
 ├── aegis_backend/           # 🧠 Server API e logica forense
@@ -61,14 +61,14 @@ Il core del progetto è la classe `ComboWatermark`, che implementa una strategia
     └── AEGIS_slides.pdf     # 🖥️ Presentazione del progetto
 
 
-## 📜 Requisiti di Sistema
+## Requisiti di Sistema
 
 * **Backend:** Python 3.8+, OpenCV, NumPy, Flask.
 * **Frontend:** Flutter SDK 3.0+.
 
 ## Installazione e Avvio
 
-### 🧠 1. Configurazione del Backend
+### 1. Configurazione del Backend
 
 Navigare nella cartella del server, attivare l'ambiente virtuale e installare le dipendenze.
 
@@ -93,7 +93,7 @@ python app.py
 
 Il server sarà attivo all'indirizzo `http://127.0.0.1:5001`.
 
-### 📲 2. Configurazione del Frontend
+### 2. Configurazione del Frontend
 
 Navigare nella cartella dell'applicazione Flutter e avviare l'app.
 
@@ -108,15 +108,15 @@ flutter run
 
 ## Utilizzo
 
-1. ✍🏻 **Marcatura (Embedding):** Tramite l'app mobile, selezionare un'immagine e un destinatario. Il backend applicherà l'algoritmo *Combo*.
-2. 🕵🏻‍♀️ **Verifica Forense:** Utilizzare il file `admin_check.html` o l'apposita sezione dell'app per caricare un'immagine sospetta.
-3. 🧐 **Analisi:** Il sistema restituirà i payload estratti (ID Mittente/Destinatario) e la tecnica rilevata.
+1. **Marcatura (Embedding):** Tramite l'app mobile, selezionare un'immagine e un destinatario. Il backend applicherà l'algoritmo *Combo*.
+2. **Verifica Forense:** Utilizzare il file `admin_check.html` o l'apposita sezione dell'app per caricare un'immagine sospetta.
+3. **Analisi:** Il sistema restituirà i payload estratti (ID Mittente/Destinatario) e la tecnica rilevata.
 
-## ✋⚠️ Disclaimer
+## Disclaimer
 
 Questo software è stato sviluppato a scopo puramente didattico e accademico. L'efficacia forense del watermarking non è garantita per utilizzi legali in ambienti di produzione senza ulteriori certificazioni.
 
-## 🙋🏻‍♀️🙋🏻‍♀️ Autori
+## Autori
 
 * **Marzia De Maina**
 * **Chiara Sivieri**
